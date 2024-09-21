@@ -1,0 +1,6 @@
+plots/*.html
+plots/*.mp4
+plots/*.webm
+ug_thesis_space_sim/
+**/__pycache__/
+plots/Tests/**
