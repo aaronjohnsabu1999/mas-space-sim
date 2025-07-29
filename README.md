@@ -14,12 +14,21 @@ This repository contains simulation code, configuration files, visualizations, a
 
 ## File Structure
 
-- `src/orbexa/`: All simulation source code and core logic
-- `docs/`: Evaluation plots, JSON logs, and image-based analysis
-- `results/`: HTML/MP4 outputs and benchmark result folders
-- `run.py`: Entry point for running a sample adaptive MPC scenario\
-- `pyproject.toml`: Project metadata and dependencies
-- `.gitignore`: Excludes simulation outputs, caches, IDE artifacts
+```
+.
+├── config/                         # YAML-based config for scenarios
+├── docs/
+│   └── adtmpc/                     # Evaluation plots and visualizations
+├── examples/                       # Example test cases and scripts
+├── results/                        # Output logs and benchmarks (optional runtime)
+├── src/
+│   └── orbexa/                     # Core simulation modules and MPC logic
+├── run.py                          # Entrypoint for running ADTMPC simulations
+├── pyproject.toml                  # Project metadata and dependencies
+├── LICENSE                         # GPLv2 license
+├── README.md                       # Project documentation
+└── .gitignore                      # Output and IDE exclusions
+```
 
 ## Getting Started
 
