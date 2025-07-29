@@ -416,124 +416,123 @@ def estimator(*args):
 
 
 if __name__ == "__main__":
-  # System Matrices
-  A = np.array(
-      [
-          [0.00, 0.00, 0.00, 1.00, 0.00, 0.00],
-          [0.00, 0.00, 0.00, 0.00, 1.00, 0.00],
-          [0.00, 0.00, 0.00, 0.00, 0.00, 1.00],
-          [3 * (n**2), 0.00, 0.00, 0.00, 2 * n, 0.00],
-          [0.00, 0.00, 0.00, -2 * n, 0.00, 0.00],
-          [0.00, 0.00, -(n**2), 0.00, 0.00, 0.00],
-      ]
-  )
-  B = np.array(
-      [
-          [0.00, 0.00, 0.00],
-          [0.00, 0.00, 0.00],
-          [0.00, 0.00, 0.00],
-          [1.00, 0.00, 0.00],
-          [0.00, 1.00, 0.00],
-          [0.00, 0.00, 1.00],
-      ]
-  )
-  A, B = discretize(1, A, B)
+    # System Matrices
+    A = np.array(
+        [
+            [0.00, 0.00, 0.00, 1.00, 0.00, 0.00],
+            [0.00, 0.00, 0.00, 0.00, 1.00, 0.00],
+            [0.00, 0.00, 0.00, 0.00, 0.00, 1.00],
+            [3 * (n**2), 0.00, 0.00, 0.00, 2 * n, 0.00],
+            [0.00, 0.00, 0.00, -2 * n, 0.00, 0.00],
+            [0.00, 0.00, -(n**2), 0.00, 0.00, 0.00],
+        ]
+    )
+    B = np.array(
+        [
+            [0.00, 0.00, 0.00],
+            [0.00, 0.00, 0.00],
+            [0.00, 0.00, 0.00],
+            [1.00, 0.00, 0.00],
+            [0.00, 1.00, 0.00],
+            [0.00, 0.00, 1.00],
+        ]
+    )
+    A, B = discretize(1, A, B)
 
-  # Optimization Matrices
-  Q = np.array(
-      [
-          [0.00, 0.00, 0.00, 0.00, 0.00, 0.00],
-          [0.00, 0.00, 0.00, 0.00, 0.00, 0.00],
-          [0.00, 0.00, 0.00, 0.00, 0.00, 0.00],
-          [0.00, 0.00, 0.00, 1.00, 0.00, 0.00],
-          [0.00, 0.00, 0.00, 0.00, 1.00, 0.00],
-          [0.00, 0.00, 0.00, 0.00, 0.00, 1.00],
-      ]
-  )
-  R = np.array([[10.00, 0.00, 0.00], [0.00, 10.00, 0.00], [0.00, 0.00, 10.00]])
+    # Optimization Matrices
+    Q = np.array(
+        [
+            [0.00, 0.00, 0.00, 0.00, 0.00, 0.00],
+            [0.00, 0.00, 0.00, 0.00, 0.00, 0.00],
+            [0.00, 0.00, 0.00, 0.00, 0.00, 0.00],
+            [0.00, 0.00, 0.00, 1.00, 0.00, 0.00],
+            [0.00, 0.00, 0.00, 0.00, 1.00, 0.00],
+            [0.00, 0.00, 0.00, 0.00, 0.00, 1.00],
+        ]
+    )
+    R = np.array([[10.00, 0.00, 0.00], [0.00, 10.00, 0.00], [0.00, 0.00, 10.00]])
 
-  # State Constraints
-  x_0 = np.array([20.00, 10.00, -10.00, 15.00, 25.00, 50.00])
-  x_f = np.array([0.00, 0.00, 0.00, 0.00, 0.00, 0.00])
+    # State Constraints
+    x_0 = np.array([20.00, 10.00, -10.00, 15.00, 25.00, 50.00])
+    x_f = np.array([0.00, 0.00, 0.00, 0.00, 0.00, 0.00])
 
-  print(A)
-  print(B)
-  print(Q)
-  print(R)
-  print(x_0)
-  print(x_f)
+    print(A)
+    print(B)
+    print(Q)
+    print(R)
+    print(x_0)
+    print(x_f)
 
+    x_0_step = x_0.copy()
+    states = [[x_0[i]] for i in range(numStates)]
+    inputs = [[] for i in range(numInputs)]
+    epsilon = 0.001
+    while np.linalg.norm(np.subtract(x_0_step, x_f)) > epsilon:
+        x_f = estimator(x_f)
+        step_states, step_inputs = trajopt(
+            numStates, numInputs, numMPCSteps, A, B, Q, R, x_0_step, x_f
+        )
+        # step_states, step_inputs = trajopt(numStates, numInputs, numMPCSteps, A, B, Q, R, x_0_step, x_f, radialLimit = 1.0, sigma_RL = 5000)
+        clear_output(wait=False)
+        for i in range(len(step_states)):
+            step_states[i] = step_states[i][:numActSteps]
+            states[i] = np.append(states[i], step_states[i][1:])
+        for i in range(len(step_inputs)):
+            step_inputs[i] = step_inputs[i][:numActSteps]
+            inputs[i] = np.append(inputs[i], step_inputs[i][1:])
+        x_0_step = np.array([states[i][-1] for i in range(numStates)])
 
-  x_0_step = x_0.copy()
-  states = [[x_0[i]] for i in range(numStates)]
-  inputs = [[] for i in range(numInputs)]
-  epsilon = 0.001
-  while np.linalg.norm(np.subtract(x_0_step, x_f)) > epsilon:
-      x_f = estimator(x_f)
-      step_states, step_inputs = trajopt(
-          numStates, numInputs, numMPCSteps, A, B, Q, R, x_0_step, x_f
-      )
-      # step_states, step_inputs = trajopt(numStates, numInputs, numMPCSteps, A, B, Q, R, x_0_step, x_f, radialLimit = 1.0, sigma_RL = 5000)
-      clear_output(wait=False)
-      for i in range(len(step_states)):
-          step_states[i] = step_states[i][:numActSteps]
-          states[i] = np.append(states[i], step_states[i][1:])
-      for i in range(len(step_inputs)):
-          step_inputs[i] = step_inputs[i][:numActSteps]
-          inputs[i] = np.append(inputs[i], step_inputs[i][1:])
-      x_0_step = np.array([states[i][-1] for i in range(numStates)])
+    # Plot results.
+    fig, ax = plt.subplots(4, 3)
+    plt.rcParams["figure.figsize"] = (18, 12)
 
-  # Plot results.
-  fig, ax = plt.subplots(4, 3)
-  plt.rcParams["figure.figsize"] = (18, 12)
+    for i in range(3):
+        plt.subplot(4, 3, i + 1)
+        u_i = inputs[i]
+        plt.plot(u_i)
+        label = "$(u_t)_{}$".format(i)
+        plt.ylabel(label, fontsize=16)
+        plt.yticks(
+            np.linspace(
+                int(np.min(u_i)),
+                int(np.max(u_i)),
+                min(12, max(3, int((np.max(u_i) - np.min(u_i) + 1) / 5))),
+            )
+        )
+        # plt.xticks([])
 
-  for i in range(3):
-      plt.subplot(4, 3, i + 1)
-      u_i = inputs[i]
-      plt.plot(u_i)
-      label = "$(u_t)_{}$".format(i)
-      plt.ylabel(label, fontsize=16)
-      plt.yticks(
-          np.linspace(
-              int(np.min(u_i)),
-              int(np.max(u_i)),
-              min(12, max(3, int((np.max(u_i) - np.min(u_i) + 1) / 5))),
-          )
-      )
-      # plt.xticks([])
+    for i in range(6):
+        plt.subplot(4, 3, i + 4)
+        x_i = states[i]
+        plt.plot(x_i)
+        label = "$(x_t)_{}$".format(i)
+        plt.ylabel(label, fontsize=16)
+        plt.yticks(
+            np.linspace(
+                int(np.min(x_i)),
+                int(np.max(x_i)),
+                min(12, max(3, int((np.max(x_i) - np.min(x_i) + 1) / 5))),
+            )
+        )
+        # plt.xticks([])
 
-  for i in range(6):
-      plt.subplot(4, 3, i + 4)
-      x_i = states[i]
-      plt.plot(x_i)
-      label = "$(x_t)_{}$".format(i)
-      plt.ylabel(label, fontsize=16)
-      plt.yticks(
-          np.linspace(
-              int(np.min(x_i)),
-              int(np.max(x_i)),
-              min(12, max(3, int((np.max(x_i) - np.min(x_i) + 1) / 5))),
-          )
-      )
-      # plt.xticks([])
+    plt.subplot(4, 3, 10)
+    x_n = [
+        np.linalg.norm([states[j][i] for j in range(numStates)])
+        for i in range(len(states[0]))
+    ]
+    plt.plot(x_n)
+    label = "$||x_t||$"
+    plt.ylabel(label, fontsize=16)
+    plt.yticks(
+        np.linspace(
+            int(np.min(x_n)),
+            int(np.max(x_n)),
+            min(12, max(3, int((np.max(x_n) - np.min(x_n) + 1) / 5))),
+        )
+    )
 
-  plt.subplot(4, 3, 10)
-  x_n = [
-      np.linalg.norm([states[j][i] for j in range(numStates)])
-      for i in range(len(states[0]))
-  ]
-  plt.plot(x_n)
-  label = "$||x_t||$"
-  plt.ylabel(label, fontsize=16)
-  plt.yticks(
-      np.linspace(
-          int(np.min(x_n)),
-          int(np.max(x_n)),
-          min(12, max(3, int((np.max(x_n) - np.min(x_n) + 1) / 5))),
-      )
-  )
+    plt.tight_layout()
+    plt.show()
 
-  plt.tight_layout()
-  plt.show()
-
-  print([states[i][-1] for i in range(3)])
+    print([states[i][-1] for i in range(3)])
