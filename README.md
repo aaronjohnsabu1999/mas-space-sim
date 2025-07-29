@@ -43,7 +43,7 @@ GPLv2 License. See `LICENSE` for details.
 If you use this work, please cite:
 
 ```
-@inproceedings{johnsabu2024orbex,
+@inproceedings{johnsabu2024orbexa,
   title={Capturing Tumbling Objects in Orbit with Adaptive Tube Model Predictive Control},
   author={Aaron John Sabu and Brett T. Lopez},
   booktitle={IEEE Aerospace Conference},
