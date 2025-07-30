@@ -49,7 +49,7 @@ def mpc_plot(
     if "fName_sim" not in kwargs:
         fName_sim = "../plots/mpc_test"
     else:
-        fName_sim = kwargs["fLoc"] + kwargs["fName_sim"]
+        fName_sim = kwargs["target_folder"] + kwargs["fName_sim"]
 
     act_states = np.array(act_states)
     act_inputs = np.array(act_inputs)
@@ -241,8 +241,10 @@ def mpc_plot(
             "labelX1": labelX1,
             "labelX2": labelX2,
         }
-        if "fLoc" in kwargs:
-            plotter_kwargs["fName"] = kwargs["fLoc"] + "act_states_all_time.png"
+        if "target_folder" in kwargs:
+            plotter_kwargs["fName"] = (
+                kwargs["target_folder"] + "act_states_all_time.png"
+            )
         plotter(t, **plotter_kwargs)
 
         ### Plot Actual States for Only Docking ###
@@ -282,8 +284,10 @@ def mpc_plot(
                 "labelX1": labelX1,
                 "labelX2": labelX2,
             }
-            if "fLoc" in kwargs:
-                plotter_kwargs["fName"] = kwargs["fLoc"] + "act_states_docking.png"
+            if "target_folder" in kwargs:
+                plotter_kwargs["fName"] = (
+                    kwargs["target_folder"] + "act_states_docking.png"
+                )
             plotter(t_dock, **plotter_kwargs)
 
     ### Plot Actual State Constraints ###
@@ -331,9 +335,9 @@ def mpc_plot(
             "labelX1": labelX1,
             "labelX2": labelX2,
         }
-        if "fLoc" in kwargs:
+        if "target_folder" in kwargs:
             plotter_kwargs["fName"] = (
-                kwargs["fLoc"] + "constraints_act_states_all_time.png"
+                kwargs["target_folder"] + "constraints_act_states_all_time.png"
             )
         plotter(t, **plotter_kwargs)
 
@@ -377,9 +381,9 @@ def mpc_plot(
                 "labelX1": labelX1,
                 "labelX2": labelX2,
             }
-            if "fLoc" in kwargs:
+            if "target_folder" in kwargs:
                 plotter_kwargs["fName"] = (
-                    kwargs["fLoc"] + "constraints_act_states_docking.png"
+                    kwargs["target_folder"] + "constraints_act_states_docking.png"
                 )
             plotter(t_dock, **plotter_kwargs)
 
@@ -452,8 +456,10 @@ def mpc_plot(
             "labelX1": labelX1,
             "labelX2": labelX2,
         }
-        if "fLoc" in kwargs:
-            plotter_kwargs["fName"] = kwargs["fLoc"] + "nom_states_all_time.png"
+        if "target_folder" in kwargs:
+            plotter_kwargs["fName"] = (
+                kwargs["target_folder"] + "nom_states_all_time.png"
+            )
         plotter(t, **plotter_kwargs)
 
         ### Plot Nominal States for Only Docking ###
@@ -493,8 +499,10 @@ def mpc_plot(
                 "labelX1": labelX1,
                 "labelX2": labelX2,
             }
-            if "fLoc" in kwargs:
-                plotter_kwargs["fName"] = kwargs["fLoc"] + "nom_states_docking.png"
+            if "target_folder" in kwargs:
+                plotter_kwargs["fName"] = (
+                    kwargs["target_folder"] + "nom_states_docking.png"
+                )
             plotter(t_dock, **plotter_kwargs)
 
     ### Plot Nominal State Constraints ###
@@ -552,9 +560,9 @@ def mpc_plot(
             "labelX1": labelX1,
             "labelX2": labelX2,
         }
-        if "fLoc" in kwargs:
+        if "target_folder" in kwargs:
             plotter_kwargs["fName"] = (
-                kwargs["fLoc"] + "constraints_nom_states_all_time.png"
+                kwargs["target_folder"] + "constraints_nom_states_all_time.png"
             )
         plotter(t, **plotter_kwargs)
 
@@ -598,9 +606,9 @@ def mpc_plot(
                 "labelX1": labelX1,
                 "labelX2": labelX2,
             }
-            if "fLoc" in kwargs:
+            if "target_folder" in kwargs:
                 plotter_kwargs["fName"] = (
-                    kwargs["fLoc"] + "constraints_nom_states_docking.png"
+                    kwargs["target_folder"] + "constraints_nom_states_docking.png"
                 )
             plotter(t_dock, **plotter_kwargs)
 
@@ -663,10 +671,10 @@ def adaptor_plot(estim_lists, range_lists, orbitParams, *args, **kwargs):
     axs[2].plot([orbitParams["drag_beta"] for i in range(len(bEstim_list))], "r--")
     axs[2].set_title("Estimate of Beta")
 
-    if "fLoc" in kwargs:
+    if "target_folder" in kwargs:
         plt.gcf().set_size_inches(10 * plt.gcf().get_size_inches())
         plt.tight_layout()
-        plt.savefig(kwargs["fLoc"] + "param_est.png")
+        plt.savefig(kwargs["target_folder"] + "param_est.png")
         plt.close()
     else:
         plt.show()
@@ -690,8 +698,8 @@ def deflection_plot(target, x, r, f, plotFlags, *args, **kwargs):
         target_plot_kwargs = {
             "params": {"sep_plots": False, "disp_plot": False},
         }
-        if "fLoc" in kwargs:
-            target_plot_kwargs["fLoc"] = kwargs["fLoc"]
+        if "target_folder" in kwargs:
+            target_plot_kwargs["target_folder"] = kwargs["target_folder"]
         target.plotStateHistory(**target_plot_kwargs)
 
     ### Chaser Position Plot ###
@@ -725,21 +733,27 @@ def deflection_plot(target, x, r, f, plotFlags, *args, **kwargs):
         ax.set_ylabel("y (m)")
         ax.set_zlabel("z (m)")
         ax.legend()
-        if "fLoc" in kwargs:
+        if "target_folder" in kwargs:
             azims = [45 * i for i in range(8)]
             for i in range(8):
                 ax.view_init(45, azims[i])
                 plt.gcf().set_size_inches(plt.gcf().get_size_inches())
                 plt.tight_layout()
-                plt.savefig(kwargs["fLoc"] + "chaser_pos_ortho" + str(i + 1) + ".png")
+                plt.savefig(
+                    kwargs["target_folder"] + "chaser_pos_ortho" + str(i + 1) + ".png"
+                )
                 ax.view_init(0, azims[i])
                 plt.gcf().set_size_inches(plt.gcf().get_size_inches())
                 plt.tight_layout()
-                plt.savefig(kwargs["fLoc"] + "chaser_pos_vert" + str(i + 1) + ".png")
+                plt.savefig(
+                    kwargs["target_folder"] + "chaser_pos_vert" + str(i + 1) + ".png"
+                )
                 ax.view_init(88, azims[i])
                 plt.gcf().set_size_inches(plt.gcf().get_size_inches())
                 plt.tight_layout()
-                plt.savefig(kwargs["fLoc"] + "chaser_pos_top" + str(i + 1) + ".png")
+                plt.savefig(
+                    kwargs["target_folder"] + "chaser_pos_top" + str(i + 1) + ".png"
+                )
             plt.close()
         else:
             plt.show()
@@ -758,10 +772,10 @@ def deflection_plot(target, x, r, f, plotFlags, *args, **kwargs):
         plt.legend()
         plt.xlabel("Time (s)")
         plt.ylabel("Force (N)")
-        if "fLoc" in kwargs:
+        if "target_folder" in kwargs:
             plt.gcf().set_size_inches(10 * plt.gcf().get_size_inches())
             plt.tight_layout()
-            plt.savefig(kwargs["fLoc"] + "chaser_force.png")
+            plt.savefig(kwargs["target_folder"] + "chaser_force.png")
             plt.close()
         else:
             plt.show()

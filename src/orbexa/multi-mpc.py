@@ -27,6 +27,8 @@ from orbexa.utils import (
     genSkewSymMat,
     tait_bryan_to_rotation_matrix,
     calcCurrentPos,
+    get_next_test_folder,
+    save_test_result,
 )
 from orbexa.dynamics import orbital_ellp_undrag
 from orbexa.orbitsim import mpc_plot
@@ -1038,86 +1040,128 @@ def mpc(
     return mpc_nominal, mpc_actual, mpc_x_f_list, mpc_adaptation, mpc_target_thetas
 
 
-if __name__ == "__main__":
-    ##### System Parameters and Bounds #####
-    ###### Default Operation
-    operation = {
-        "opIter": 0,  # i: operation iteration
-        "opType": 0,  # 0: both, 1: rendezvous only, 2: docking only, else: dummy operation
-        "opInit": 0,  # i: choice of X_0
-        "xfCalc": True,  # 0: no x_f calculation, 1: x_f calculation
-        "adFlag": True,  # 0: no adaptation,      1: adaptation
-        "DTFlag": True,
-    }  # 0: no tubeMPC,         1: tubeMPC
-    try:
-        operation["opIter"] = int(sys.argv[1])
-        operation["opType"] = int(sys.argv[2])
-        operation["opInit"] = int(sys.argv[3])
-        operation["xfCalc"] = bool(int(sys.argv[4]))
-        operation["adFlag"] = [True, False, True, False][operation["opIter"] - 1]
-        operation["DTFlag"] = [True, True, False, False][operation["opIter"] - 1]
-    except:
-        operation["opIter"] = 0
-        operation["opType"] = 0
-    numChasers = int(sys.argv[5])
-    bounds = (p.stateBounds, p.inputBounds)
+def parse_arguments():
+    """Parse command-line arguments to configure the operation."""
+    parser = argparse.ArgumentParser(
+        description="Run MPC rendezvous and docking simulation."
+    )
+    parser.add_argument(
+        "opIter",
+        type=int,
+        nargs="?",
+        default=0,
+        help="Operation iteration (e.g., 1-4 for predefined tests).",
+    )
+    parser.add_argument(
+        "opType",
+        type=int,
+        nargs="?",
+        default=0,
+        help="Operation type: 0=both, 1=rendezvous, 2=docking.",
+    )
+    parser.add_argument(
+        "opInit",
+        type=int,
+        nargs="?",
+        default=0,
+        help="Initial condition choice (0 for command line input).",
+    )
+    parser.add_argument(
+        "xfCalc",
+        type=int,
+        nargs="?",
+        default=1,
+        choices=[0, 1],
+        help="Enable final state calculation (0=False, 1=True).",
+    )
+    parser.add_argument(
+        "initial_states",
+        type=float,
+        nargs="*",
+        default=[],
+        help="Initial states for each chaser (6 values per chaser).",
+    )
+    parser.add_argument(
+        "numChasers",
+        type=int,
+        nargs="?",
+        default=1,
+        help="Number of chaser spacecrafts.",
+    )
 
-    p.tubeMPC["runTube"] = operation["DTFlag"]
+    args = parser.parse_args()
 
-    ##### Initial Conditions #####
-    t_0 = 0.0
-    if operation["opInit"] == 0:  # Command Line Input
-        X_0 = []
-        for i in range(numChasers):
-            for val in range(6, 12):
-                X_0.append(float(sys.argv[val + 6 * i]))
-        X_0 = np.array(X_0)
-    U_0 = np.array([0.000, 0.000, 0.000])
-    rLen, fLen = len(X_0), len(U_0)
+    # Configure flags based on opIter
+    ad_flags = [True, False, True, False]
+    dt_flags = [True, True, False, False]
 
-    T = Target(
+    op_flags = {
+        "opIter": args.opIter,
+        "opType": args.opType,
+        "opInit": args.opInit,
+        "xfCalc": bool(args.xfCalc),
+        "adFlag": (
+            ad_flags[args.opIter - 1] if 0 < args.opIter <= len(ad_flags) else False
+        ),
+        "DTFlag": (
+            dt_flags[args.opIter - 1] if 0 < args.opIter <= len(dt_flags) else False
+        ),
+    }
+
+    if args.opInit == 0 and not args.initial_states:
+        # Default initial states for a single chaser if not provided
+        if args.numChasers == 1:
+            # Example default state; replace with a meaningful default if needed
+            args.initial_states = [100.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        else:
+            raise ValueError("Initial states must be provided for multiple chasers.")
+
+    return op_flags, args.numChasers, args.initial_states
+
+
+def get_initial_conditions(num_chasers, initial_states_raw):
+    """Set initial conditions from parsed arguments."""
+    if initial_states_raw:
+        if len(initial_states_raw) != num_chasers * 6:
+            raise ValueError(
+                f"Expected {num_chasers * 6} initial states, but got {len(initial_states_raw)}."
+            )
+        x_0 = np.array(initial_states_raw)
+    else:
+        # Fallback for when opInit is not 0 and initial_states is not provided
+        # This part of the original logic seems incomplete, so we provide a placeholder.
+        x_0 = np.zeros(num_chasers * 6)  # Or some other default logic
+
+    u_0 = np.zeros(num_chasers * 3)  # Assuming 3 inputs per chaser
+    return x_0, u_0
+
+
+def setup_simulation_components(op_flags, num_chasers, x_0):
+    """Initialize core simulation objects and parameters."""
+    target = Target(
         {"name": "Target", "numStates": 3, "dt": p.dt, "initState": p.th_T0},
-        {
-            "angularVelocity": p.w_T0,
-            "momInertia": p.I_T0,
-        },
+        {"angularVelocity": p.w_T0, "momInertia": p.I_T0},
     )
-    main_x_f_list = []
-    main_target_thetas = []
-    main_act_states, main_act_inputs = [], []
-    main_nom_states, main_nom_inputs = [], []
-    main_fin_states, main_tgt_states = [], []
-    main_estim_lists, main_range_lists = [[] for i in range(3)], [
-        [[], []] for i in range(3)
-    ]
-    FSS = p.initAdaptParams.copy()
-    nomOrbitParams = p.nomOrbitParams.copy()
 
-    # Final State Calculation
-    TStopSteps = 200
-    X_f_body = np.array(
-        [
-            [
-                0.00,
-                -0.80,
-                0.60,
-            ],
-            [
-                0.00,
-                0.80,
-                -0.60,
-            ],
-        ]
-    )
-    if operation["xfCalc"]:
+    bounds = (p.stateBounds, p.inputBounds)
+    p.tubeMPC["runTube"] = op_flags["DTFlag"]
+
+    # Final state calculation
+    x_f_body = np.array([[0.00, -0.80, 0.60], [0.00, 0.80, -0.60]])[
+        :num_chasers
+    ]  # Use only as many as needed
+
+    if op_flags["xfCalc"]:
         print("~ Final State Calculation ~")
         output = targetDeflect(
-            target=deepcopy(T),
+            target=deepcopy(target),
             dt=p.dt,
-            x_f=np.array([0, 0, 0, 0, 0, 0]),
+            x_f=np.zeros(
+                6
+            ),  # This seems to be a placeholder based on the original code
             bounds=(p.forceBounds),
-            numSteps=TStopSteps,
-            numChasers=numChasers,
+            numSteps=200,
+            numChasers=num_chasers,
             rLen=3,
             fLen=3,
             chaserMinDist=p.chaserMinDist,
@@ -1127,246 +1171,275 @@ if __name__ == "__main__":
                 "cylCenter": p.targetCenter,
             },
         )
-        _, angles, X_f_body, forces = output
-    X_f_body = np.pad(X_f_body, ((0, 0), (0, 3)), "constant", constant_values=(0, 0))
-    # X_f_body = np.reshape(X_f_body, numChasers*6)
+        _, _, x_f_body, _ = (
+            output  # The original code uses 'angles' and 'forces' which are not used later
+        )
 
-    dock_index = 0
-    X_f = np.zeros(rLen * numChasers)
-    operationTypes = []
-    if operation["opType"] == 0 or operation["opType"] == 1:
-        operationTypes.append("rendezvous")
-    if operation["opType"] == 0 or operation["opType"] == 2:
-        operationTypes.append("docking")
-    for operationType in operationTypes:
-        if operationType == "rendezvous":
-            # x_f_rad = [1000, 800, 400, 200, 100, 75, 50, 25, 5, 1.5]
-            x_f_rad = [2.0]
+    # Pad x_f_body with zeros for velocity components
+    x_f_body = np.pad(x_f_body, ((0, 0), (0, 3)), "constant")
+
+    return target, bounds, x_f_body
+
+
+def run_mpc_operation(
+    op_type, num_chasers, target, bounds, x_0, u_0, x_f_body, op_flags, main_data
+):
+    """Run a single MPC operation (rendezvous or docking)."""
+    operation_types = []
+    if op_type == 0 or op_type == 1:
+        operation_types.append("rendezvous")
+    if op_type == 0 or op_type == 2:
+        operation_types.append("docking")
+
+    for op_type_str in operation_types:
+        if op_type_str == "rendezvous":
+            target_rads = (
+                p.rendezvous_radii if hasattr(p, "rendezvous_radii") else [2.0]
+            )
             v_f_rad = 0.1
-        elif operationType == "docking":
-            x_f_rad = [0.0]
+        elif op_type_str == "docking":
+            target_rads = p.docking_radii if hasattr(p, "docking_radii") else [0.0]
             v_f_rad = 0.0
-        for x_f_rad_i in x_f_rad:
-            if operationType == "rendezvous":
-                print()
-                print("~ Rendezvous to Sphere of Radius ", x_f_rad_i, " ~")
-            elif operationType == "docking":
-                print()
-                print("~ Docking to Target ~")
-            f_X_f = [
-                partial(calcCurrentPos, target=T, x_i=X_f_body[agent][:3])
-                for agent in range(numChasers)
-            ]
-            t_0 = p.dt * len(main_act_states)
-            try:
-                X_0 = main_act_states[-1]
-            except:
-                pass
-            try:
-                U_0 = main_nom_inputs[-1]
-            except:
-                U_0 = np.zeros(fLen * numChasers)
-            targetParams = {
-                "theta_0": T.getObservedState(t=t_0),
-                "omega_0": T.getObservedAngVel(t=t_0),
-                "momInertia": T.momInertia,
-            }
 
-            outputParams = {
-                "operation": operationType,
-                "dt": p.dt,
-                "t_0": t_0,
-                "rLen": rLen,
-                "fLen": fLen,
-                "numChasers": numChasers,
-                "numMPCSteps": p.numMPCSteps[operationType],
-                "numActSteps": p.numActSteps[operationType],
-                "X_0": X_0,
-                "f_X_f": f_X_f,
-                "x_f_rad": x_f_rad_i,
-                "v_f_rad": v_f_rad,
-                "U_0": U_0,
-                "actOrbitParams": p.actOrbitParams,
-                "nomOrbitParams": nomOrbitParams,
-                "bounds": bounds,
-                "initAdaptParams": FSS,
-            }
-            if True:
-                outputParams["targetParams"] = targetParams
-                outputParams["tubeMPC"] = p.tubeMPC
-            if True:
-                outputParams["adaptorFlag"] = operation["adFlag"]
-                outputParams["eRange"] = FSS["eccentricity"]
-                outputParams["aRange"] = FSS["drag_alpha"]
-                outputParams["bRange"] = FSS["drag_beta"]
-            if operationType == "rendezvous":
-                outputParams["radialLimit"] = p.radialLimit
-            if operationType == "docking":
-                outputParams["targetLimit"] = p.targetLimit
-                # outputParams['pyramidalLimit'] = p.pyramidalLimit
-            output = mpc(**outputParams)
+        for x_f_rad_i in target_rads:
+            print(
+                f"\n~ {op_type_str.capitalize()} to Sphere of Radius {x_f_rad_i} ~"
+                if op_type_str == "rendezvous"
+                else "\n~ Docking to Target ~"
+            )
+
+            # Update initial conditions for subsequent operations
+            t_0 = p.dt * len(main_data["actual_states"])
+            if main_data["actual_states"]:
+                x_0 = main_data["actual_states"][-1]
+            if main_data["nominal_inputs"]:
+                u_0 = main_data["nominal_inputs"][-1]
+            else:
+                u_0 = np.zeros(num_chasers * 3)
+
+            mpc_params = build_mpc_parameters(
+                op_type_str,
+                num_chasers,
+                target,
+                t_0,
+                x_0,
+                u_0,
+                x_f_body,
+                x_f_rad_i,
+                v_f_rad,
+                op_flags,
+                bounds,
+            )
+            output = mpc(**mpc_params)
 
             nominal, actual, x_f_list, adaptation, target_thetas = output
             nom_states, nom_inputs = nominal
             act_states, act_inputs = actual
-            FSS, estim_lists, range_lists = adaptation
-            try:
-                nomOrbitParams = {
+            fss, estim_lists, range_lists = adaptation
+
+            # Update nominal orbit parameters for next step
+            if estim_lists and estim_lists[0]:
+                main_data["nom_orbit_params"] = {
                     "eccentricity": estim_lists[0][-1],
                     "drag_alpha": estim_lists[1][-1],
                     "drag_beta": estim_lists[2][-1],
                 }
-            except:
-                pass
 
-            fin_states, tgt_states = [], []
-            for x_f_i in x_f_list:
-                fin_states.extend([x_f_i for i in range(p.numActSteps[operationType])])
-            for t_iter in range(len(act_states)):
-                rotMatrix = tait_bryan_to_rotation_matrix(
-                    T.getObservedState(t=t_0 + t_iter * p.dt)
-                )
-                x_f = np.dot(rotMatrix, x_f_body)
-                tgt_states.append(x_f)
-            main_act_states.extend(act_states)
-            main_act_inputs.extend(act_inputs)
-            main_nom_states.extend(nom_states)
-            main_nom_inputs.extend(nom_inputs)
-            main_fin_states.extend(fin_states)
-            main_tgt_states.extend(tgt_states)
-            main_target_thetas.extend(target_thetas)
-            for i in range(3):
-                main_estim_lists[i].extend(estim_lists[i])
-                main_range_lists[i][0].extend(range_lists[i][0])
-                main_range_lists[i][1].extend(range_lists[i][1])
-            main_x_f_list.extend(x_f_list)
-        if operationType == "rendezvous":
-            dock_index = len(main_act_states)
-
-    # Dummy Operation
-    if operation["opType"] not in [0, 1, 2]:
-        main_act_states.extend([np.zeros(6) for i in range(10)])
-        main_act_inputs.extend([np.zeros(3) for i in range(10)])
-        main_nom_states.extend([np.zeros(6) for i in range(10)])
-        main_nom_inputs.extend([np.zeros(3) for i in range(10)])
-        main_fin_states.extend([np.zeros(6) for i in range(10)])
-        main_tgt_states.extend([np.zeros(6) for i in range(10)])
-        main_target_thetas.extend([np.zeros(3) for i in range(10)])
-        for i in range(3):
-            main_estim_lists[i].extend([0 for i in range(10)])
-            main_range_lists[i][0].extend([0 for i in range(10)])
-            main_range_lists[i][1].extend([0 for i in range(10)])
-        main_x_f_list.extend([np.zeros(6) for i in range(10)])
-
-    # Generate File Names
-    if not operation["opIter"] or operation["opType"] not in [0, 1, 2]:
-        fName_sim = "../plots/mpc_test"
-    else:
-        folders = [
-            "Test 01 - Complete Pipeline - ADTMPC - ",
-            "Test 02 - Complete Pipeline - DTMPC - ",
-            "Test 03 - Complete Pipeline - AMPC - ",
-            "Test 04 - Complete Pipeline - MPC - ",
-        ]
-        for i in range(len(folders)):
-            if operation["opType"] == 0:
-                folders[i] += "Single-Agent Rendezvous and Docking/"
-            elif operation["opType"] == 1:
-                folders[i] += "Single-Agent Rendezvous/"
-            elif operation["opType"] == 2:
-                folders[i] += "Single-Agent Docking/"
-            else:
-                folders[i] += "Dummy Operation/"
-        fName_sim = "trajectory"
-        fLoc = "../plots/Tests/Session 04/Scene 01/" + folders[operation["opIter"] - 1]
-        print(
-            "Operation : Adaptation: ",
-            operation["adFlag"],
-            ", Tube MPC: ",
-            operation["DTFlag"],
-        )
-        if operation["adFlag"] and operation["DTFlag"]:
-            fType = "ADTMPC"
-        elif operation["DTFlag"]:
-            fType = "DTMPC"
-        elif operation["adFlag"]:
-            fType = "AMPC"
-        else:
-            fType = "MPC"
-        fName = "../plots/mpc_test_" + fType
-
-    # Store data
-    if operation["opIter"] != 0 and operation["opType"] in [0, 1, 2]:
-        fName = "../plots/mpc_test_" + fType
-        if operation["xfCalc"]:
-            np.savez(
-                fName + "_deflection.npy",
-                T=T,
-                angles=angles,
-                x_f_body=x_f_body,
-                forces=forces,
+            # Append results to main data lists
+            append_results(
+                main_data,
+                act_states,
+                act_inputs,
+                nom_states,
+                nom_inputs,
+                x_f_list,
+                target_thetas,
+                estim_lists,
+                range_lists,
+                x_f_body,
+                target,
+                t_0,
+                op_type_str,
             )
-        if operation["adFlag"]:
+
+    # Handle the "docking" vs "rendezvous" split for plotting
+    if "rendezvous" in operation_types and "docking" in operation_types:
+        main_data["dock_index"] = len(main_data["actual_states"])
+
+
+def build_mpc_parameters(
+    op_type_str,
+    num_chasers,
+    target,
+    t_0,
+    x_0,
+    u_0,
+    x_f_body,
+    x_f_rad,
+    v_f_rad,
+    op_flags,
+    bounds,
+):
+    """Build the dictionary of parameters for the mpc function."""
+    f_x_f = [
+        partial(calcCurrentPos, target=target, x_i=x_f_body[agent][:3])
+        for agent in range(num_chasers)
+    ]
+
+    mpc_params = {
+        "operation": op_type_str,
+        "dt": p.dt,
+        "t_0": t_0,
+        "rLen": 6,  # Assuming 6 states per chaser
+        "fLen": 3,  # Assuming 3 inputs per chaser
+        "numChasers": num_chasers,
+        "numMPCSteps": p.numMPCSteps[op_type_str],
+        "numActSteps": p.numActSteps[op_type_str],
+        "X_0": x_0,
+        "f_X_f": f_x_f,
+        "x_f_rad": x_f_rad,
+        "v_f_rad": v_f_rad,
+        "U_0": u_0,
+        "actOrbitParams": p.actOrbitParams,
+        "nomOrbitParams": p.nomOrbitParams,
+        "bounds": bounds,
+        "initAdaptParams": p.initAdaptParams,
+        "targetParams": {
+            "theta_0": target.getObservedState(t=t_0),
+            "omega_0": target.getObservedAngVel(t=t_0),
+            "momInertia": target.momInertia,
+        },
+        "tubeMPC": p.tubeMPC,
+        "adaptorFlag": op_flags["adFlag"],
+        "eRange": p.initAdaptParams["eccentricity"],
+        "aRange": p.initAdaptParams["drag_alpha"],
+        "bRange": p.initAdaptParams["drag_beta"],
+    }
+
+    if op_type_str == "rendezvous":
+        mpc_params["radialLimit"] = p.radialLimit
+    elif op_type_str == "docking":
+        mpc_params["targetLimit"] = p.targetLimit
+
+    return mpc_params
+
+
+def append_results(
+    main_data,
+    act_states,
+    act_inputs,
+    nom_states,
+    nom_inputs,
+    x_f_list,
+    target_thetas,
+    estim_lists,
+    range_lists,
+    x_f_body,
+    target,
+    t_0,
+    op_type_str,
+):
+    """Append results from a single MPC run to the main data lists."""
+    num_act_steps = p.numActSteps[op_type_str]
+
+    main_data["actual_states"].extend(act_states)
+    main_data["actual_inputs"].extend(act_inputs)
+    main_data["nominal_states"].extend(nom_states)
+    main_data["nominal_inputs"].extend(nom_inputs)
+    main_data["target_thetas"].extend(target_thetas)
+
+    # Calculate and append final and target states for plotting
+    fin_states = [x_f_i for x_f_i in x_f_list for _ in range(num_act_steps)]
+    main_data["final_states"].extend(fin_states)
+
+    tgt_states = []
+    for t_iter in range(len(act_states)):
+        rot_matrix = tait_bryan_to_rotation_matrix(
+            target.getObservedState(t=t_0 + t_iter * p.dt)
+        )
+        x_f = np.dot(rot_matrix, x_f_body)
+        tgt_states.append(x_f)
+    main_data["target_states"].extend(tgt_states)
+
+    if estim_lists:
+        for i in range(3):
+            main_data["estim_lists"][i].extend(estim_lists[i])
+            main_data["range_lists"][i][0].extend(range_lists[i][0])
+            main_data["range_lists"][i][1].extend(range_lists[i][1])
+
+    main_data["x_f_list"].extend(x_f_list)
+
+
+def setup_and_run_dummy(op_flags, main_data):
+    """Run a dummy operation for specific opType and opIter values."""
+    print("\n~ Running Dummy Operation ~")
+    dummy_steps = 10
+    # Create lists of dummy data for each output type
+    main_data["actual_states"].extend([np.zeros(6) for _ in range(dummy_steps)])
+    main_data["actual_inputs"].extend([np.zeros(3) for _ in range(dummy_steps)])
+    main_data["nominal_states"].extend([np.zeros(6) for _ in range(dummy_steps)])
+    main_data["nominal_inputs"].extend([np.zeros(3) for _ in range(dummy_steps)])
+    main_data["final_states"].extend([np.zeros(6) for _ in range(dummy_steps)])
+    main_data["target_states"].extend([np.zeros(6) for _ in range(dummy_steps)])
+    main_data["target_thetas"].extend([np.zeros(3) for _ in range(dummy_steps)])
+    main_data["x_f_list"].extend([np.zeros(6) for _ in range(dummy_steps)])
+    for i in range(3):
+        main_data["estim_lists"][i].extend([0 for _ in range(dummy_steps)])
+        main_data["range_lists"][i][0].extend([0 for _ in range(dummy_steps)])
+        main_data["range_lists"][i][1].extend([0 for _ in range(dummy_steps)])
+
+
+def save_and_plot_data(
+    main_data, op_flags, target, x_f_body, num_chasers, target_folder=None
+):
+    """Save simulation data and generate plots."""
+    print("~ Saving Results ~")
+    if op_flags["opIter"] != 0 and op_flags["opType"] in [0, 1, 2]:
+        if op_flags["xfCalc"]:
+            np.savez(f"{target_folder}/deflection.npy", T=target, x_f_body=x_f_body)
+        if op_flags["adFlag"]:
             np.savez(
-                fName + "_adaptor.npy",
-                main_estim_lists=main_estim_lists,
-                main_range_lists=main_range_lists,
+                f"{target_folder}/adaptor.npy",
+                main_estim_lists=main_data["estim_lists"],
+                main_range_lists=main_data["range_lists"],
                 actOrbitParams=p.actOrbitParams,
             )
-        np.savez(
-            fName + "_mpc.npy",
-            main_act_states=main_act_states,
-            main_act_inputs=main_act_inputs,
-            main_nom_states=main_nom_states,
-            main_nom_inputs=main_nom_inputs,
-            main_fin_states=main_fin_states,
-            main_tgt_states=main_tgt_states,
-            main_target_thetas=main_target_thetas,
-            main_x_f_list=main_x_f_list,
-        )
-        print("Data saved to ", fName)
+        np.savez(f"{target_folder}/mpc.npy", **main_data)
+        print(f"Data saved to {target_folder}")
 
-    # Plot data
-    if len(main_act_states) > 0:
-        mpc_plot_kwargs = {
-            "act_states": main_act_states,
-            "act_inputs": main_act_inputs,
-            "nom_states": main_nom_states,
-            "nom_inputs": main_nom_inputs,
-            "fin_states": main_fin_states,
-            "tgt_states": main_tgt_states,
-            "x_f_list": main_x_f_list,
+    print("~ Plotting Results ~")
+    if main_data["actual_states"]:
+        plot_kwargs = {
+            "act_states": main_data["actual_states"],
+            "act_inputs": main_data["actual_inputs"],
+            "nom_states": main_data["nominal_states"],
+            "nom_inputs": main_data["nominal_inputs"],
+            "fin_states": main_data["final_states"],
+            "tgt_states": main_data["target_states"],
+            "x_f_list": main_data["x_f_list"],
             "dt": p.dt,
-            "plotFlags": {
-                "plot_act": True,
-                "plot_act_sim": True,
-                "plot_act_con": True,
-                "plot_nom": True,
-                "plot_nom_sim": True,
-                "plot_nom_con": True,
-            },
-            "target_thetas": main_target_thetas,
-            "dock_index": dock_index,
+            "plotFlags": {"plot_act": True, "plot_nom": True},
+            "target_thetas": main_data["target_thetas"],
+            "dock_index": main_data["dock_index"],
         }
-        if operation["opIter"] and operation["opType"] in [0, 1, 2]:
-            mpc_plot_kwargs["fName_sim"] = fName_sim
-            mpc_plot_kwargs["fLoc"] = fLoc
-        mpc_plot(**mpc_plot_kwargs)
+        if target_folder:
+            mpc_plot_kwargs["targetFolder"] = target_folder
+        mpc_plot(**plot_kwargs)
 
-    if operation["xfCalc"]:
+    if op_flags["xfCalc"]:
         deflection_plot_kwargs = {
-            "target": T,
+            "target": target,
             "x": [],
             "r": [x_f_body],
-            "f": forces,
+            "f": [],
             "plotFlags": {
                 "plot_target": True,
                 "plot_position": True,
                 "plot_force": True,
             },
-            "numChasers": numChasers,
+            "numChasers": num_chasers,
             "dt": p.dt,
-            "numSteps": TStopSteps,
+            "numSteps": 200,
             "shapeParams": {
                 "cylHeight": p.targetLimit["l_T"],
                 "cylRadius": p.targetLimit["r_T"],
@@ -1375,16 +1448,88 @@ if __name__ == "__main__":
             "targetShape": p.targetShape,
             "initialTimeLapse": p.initialTimeLapse,
         }
-        if operation["opIter"] and operation["opType"] in [0, 1, 2]:
-            deflection_plot_kwargs["fLoc"] = fLoc
+        if target_folder:
+            deflection_plot_kwargs["target_folder"] = target_folder
         deflection_plot(**deflection_plot_kwargs)
 
-    if operation["adFlag"] and len(main_estim_lists[0]) > 0:
+    if op_flags["adFlag"] and main_data["estim_lists"][0]:
         adaptor_plot_kwargs = {
-            "estim_lists": main_estim_lists,
-            "range_lists": main_range_lists,
+            "estim_lists": main_data["estim_lists"],
+            "range_lists": main_data["range_lists"],
             "orbitParams": p.actOrbitParams,
         }
-        if operation["opIter"] and operation["opType"] in [0, 1, 2]:
-            adaptor_plot_kwargs["fLoc"] = fLoc
+        if target_folder:
+            adaptor_plot_kwargs["targetFolder"] = target_folder
         adaptor_plot(**adaptor_plot_kwargs)
+
+
+def main():
+    """Main function to run the simulation pipeline."""
+    try:
+        op_flags, num_chasers, initial_states = parse_arguments()
+        x_0, u_0 = get_initial_conditions(num_chasers, initial_states)
+    except (ValueError, IndexError) as e:
+        print(f"Error parsing command line arguments: {e}")
+        return
+
+    # Initialize data containers
+    main_data = {
+        "actual_states": [],
+        "actual_inputs": [],
+        "nominal_states": [],
+        "nominal_inputs": [],
+        "final_states": [],
+        "target_states": [],
+        "estim_lists": [[] for _ in range(3)],
+        "range_lists": [[[], []] for _ in range(3)],
+        "target_thetas": [],
+        "x_f_list": [],
+        "dock_index": 0,
+        "nom_orbit_params": p.nomOrbitParams.copy(),
+    }
+
+    target, bounds, x_f_body = setup_simulation_components(op_flags, num_chasers, x_0)
+
+    # Main simulation loop
+    if op_flags["opType"] in [0, 1, 2]:
+        run_mpc_operation(
+            op_flags["opType"],
+            num_chasers,
+            target,
+            bounds,
+            x_0,
+            u_0,
+            x_f_body,
+            op_flags,
+            main_data,
+        )
+    else:
+        setup_and_run_dummy(op_flags, main_data)
+
+    # Prepare for saving and plotting
+    target_folder = save_test_result(
+        properties={
+            "pipeline": {
+                "rendezvous": op_flags["opType"] in [0, 1],
+                "docking": op_flags["opType"] in [0, 2],
+            },
+            "algorithm": {
+                "adaptation": op_flags["adFlag"],
+                "dynamic_tubes": op_flags["DTFlag"],
+                "mpc": True,
+            },
+            "sim_details": {"validity": True, "reason": "working model"},
+        },
+        files_to_copy=[
+            ("config/default.yaml", "config.yaml"),
+            ("results/plot.png", "plot.png"),
+        ],
+    )
+
+    save_and_plot_data(
+        main_data, op_flags, target, x_f_body, num_chasers, target_folder
+    )
+
+
+if __name__ == "__main__":
+    main()

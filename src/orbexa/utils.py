@@ -13,12 +13,15 @@
 import os
 import sys
 import json
+import yaml
 import scipy
+import shutil
 import datetime
 import keyboard
-import scipy.signal
 import numpy as np
+import scipy.signal
 import matplotlib.pyplot as plt
+from pathlib import Path
 
 from orbexa.params import *
 
@@ -75,6 +78,49 @@ def streamprinter(text):
     """
     sys.stdout.write(text)
     sys.stdout.flush()
+
+
+def get_next_test_folder(base_dir="./results/tests"):
+    """
+    Get the next available test folder path.
+
+    Args:
+        base_dir (str): Base directory for test folders.
+
+    Returns:
+        Path: Path to the next test folder.
+    """
+    base = Path(base_dir)
+    base.mkdir(parents=True, exist_ok=True)
+    existing = [d.name for d in base.iterdir() if d.is_dir() and d.name.startswith("t")]
+    numbers = sorted(int(d[1:]) for d in existing if d[1:].isdigit())
+    next_id = (numbers[-1] + 1) if numbers else 1
+    return base / f"t{next_id:02d}"
+
+
+def save_test_result(properties: dict, files_to_copy=None, base_dir="./results/tests"):
+    """
+    Creates a new test result folder, saves the properties.yaml, and copies optional files.
+
+    Args:
+        properties (dict): Metadata to save as properties.yaml
+        files_to_copy (list of tuples): Each tuple is (src_path, dst_filename)
+        base_dir (str): Path to the results/tests directory
+    """
+    target_folder = get_next_test_folder(base_dir)
+    target_folder.mkdir(parents=True)
+
+    # Save properties.yaml
+    with open(target_folder / "properties.yaml", "w") as f:
+        yaml.dump(properties, f, default_flow_style=False)
+
+    # Copy additional files
+    if files_to_copy:
+        for src_path, dst_name in files_to_copy:
+            shutil.copy(src_path, target_folder / dst_name)
+
+    print(f"[✓] Saved test result to: {target_folder}")
+    return str(target_folder)
 
 
 def calcDistance(p1, p2):
